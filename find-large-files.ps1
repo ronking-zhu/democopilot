@@ -1,19 +1,58 @@
-# 查找 C 盘下最占空间的 5 个文件
+# 查找指定盘符下最占空间的文件
 
 try {
+    # 获取系统中所有可用的固定磁盘和可移动磁盘
+    $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Used -ne $null } | Sort-Object Name
+
+    if (-not $drives -or $drives.Count -eq 0) {
+        throw "未检测到任何可用磁盘。"
+    }
+
+    # 显示可选盘符列表
+    Write-Host "`n===== 可用磁盘列表 =====" -ForegroundColor Yellow
+    $index = 1
+    foreach ($drive in $drives) {
+        $usedGB = [math]::Round($drive.Used / 1GB, 2)
+        $freeGB = [math]::Round($drive.Free / 1GB, 2)
+        $totalGB = [math]::Round(($drive.Used + $drive.Free) / 1GB, 2)
+        Write-Host "  [$index] $($drive.Name): 盘  (已用: ${usedGB}GB / 总计: ${totalGB}GB / 可用: ${freeGB}GB)" -ForegroundColor Cyan
+        $index++
+    }
+    Write-Host "========================`n" -ForegroundColor Yellow
+
+    # 提示用户输入选择
+    $selection = Read-Host "请输入序号选择磁盘 (1-$($drives.Count))，或直接输入盘符 (如 D)"
+
+    # 解析用户输入：支持序号或盘符
+    $selectedDrive = $null
+    if ($selection -match '^\d+$') {
+        $selIndex = [int]$selection
+        if ($selIndex -ge 1 -and $selIndex -le $drives.Count) {
+            $selectedDrive = $drives[$selIndex - 1]
+        }
+    } else {
+        $letter = $selection.TrimEnd(':').ToUpper()
+        $selectedDrive = $drives | Where-Object { $_.Name -eq $letter }
+    }
+
+    if (-not $selectedDrive) {
+        throw "无效的选择 '$selection'，请输入正确的序号或盘符。"
+    }
+
+    $scanPath = "$($selectedDrive.Name):\"
+
     # 检查扫描路径是否存在
-    $scanPath = "C:\"
     if (-not (Test-Path -Path $scanPath)) {
         throw "扫描路径 '$scanPath' 不存在，请检查路径是否正确。"
     }
 
     # 输出青色提示信息，告知用户扫描已开始
-    Write-Host "正在扫描 C 盘，请稍候..." -ForegroundColor Cyan
+    Write-Host "正在扫描 $($selectedDrive.Name): 盘，请稍候..." -ForegroundColor Cyan
 
     # 记录扫描开始时间，用于计算耗时
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # 递归遍历 C 盘所有文件（-File 只取文件，不含目录；-ErrorAction SilentlyContinue 跳过无权限的目录）
+    # 递归遍历所选磁盘所有文件（-File 只取文件，不含目录；-ErrorAction SilentlyContinue 跳过无权限的目录）
     $results = Get-ChildItem -Path $scanPath -Recurse -File -ErrorAction SilentlyContinue |
         # 过滤掉 OneDrive 目录下的文件
         Where-Object { $_.FullName -notlike "*\OneDrive*" } |
